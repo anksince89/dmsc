@@ -1,36 +1,17 @@
 import numpy as np
 from HaResidual import haresidual  # used by GBTF
-from mosaic_bayer import get_mosaic_masks
+from utils import *
 
 
 #  Directional weights
-def DirectsSmooth4Kernel(Algorithm, sigma):
+def DirectsSmooth4Kernel():
     """
     outputs the directional smoothing kernels for different 
     demosaicing Algorithms (GBTF, RI, MLRI, WMLRI)
     sigma is ignored by GBTF 
     """
-    if Algorithm == 'GBTF':
-        Ke = np.array([[0, 0, 0, 0, 26, 24, 21, 17, 12]]) / 100
-        Kw = np.array([[12, 17, 21, 24, 26, 0, 0, 0, 0]]) / 100
-    elif Algorithm == 'RI':
-        h = getGaussianKernel(9, sigma).T
-        Ke = np.array([[0, 0, 0, 0, 1, 1, 1, 1, 1]]) * h
-        Kw = np.array([[1, 1, 1, 1, 1, 0, 0, 0, 0]]) * h
-        Ke = Ke / np.sum(Ke, 1)
-        Kw = Kw / np.sum(Kw, 1)
-    elif Algorithm == 'MLRI':
-        h = getGaussianKernel(9, sigma).T
-        Ke = np.array([[0, 0, 0, 0, 1, 1, 1, 1, 1]]) * h
-        Kw = np.array([[1, 1, 1, 1, 1, 0, 0, 0, 0]]) * h
-        Ke = Ke / np.sum(Ke, 1)
-        Kw = Kw / np.sum(Kw, 1)
-    elif Algorithm == 'WMLRI':
-        h = getGaussianKernel(9, sigma).T
-        Ke = np.array([[0, 0, 0, 0, 1, 1, 1, 1, 1]]) * h
-        Kw = np.array([[1, 1, 1, 1, 1, 0, 0, 0, 0]]) * h
-        Ke = Ke / np.sum(Ke, 1)
-        Kw = Kw / np.sum(Kw, 1)
+    Ke = np.array([[0, 0, 0, 0, 26, 24, 21, 17, 12]]) / 100
+    Kw = np.array([[12, 17, 21, 24, 26, 0, 0, 0, 0]]) / 100
 
     Ks = Ke.T
     Kn = Kw.T
@@ -41,30 +22,14 @@ def DirectsSmooth4Kernel(Algorithm, sigma):
 
 
 #  Directional weights
-def Means4Weights(Algorithm, difh2, difv2):
+def Means4Weights(difh2, difv2):
     """
     computes the weights used for the directional propagation (S,N,W,E) 
     for different demosaicing Algorithms (GBTF, RI, MLRI, WMLRI) 
     """    
-    if Algorithm == 'GBTF':
-        K = np.multiply(getGaussianKernel(5, 2), (getGaussianKernel(5, 2)).T)
-        Kw = np.array([[1, 0, 0]])
-        Ke = np.array([[0, 0, 1]])
-    elif Algorithm == "RI":
-        K = np.ones((5, 5))
-        Kw = np.array([[1, 0, 0, 0, 0]])
-        Ke = np.array([[0, 0, 0, 0, 1]])
-        # 3-tap filters also work quite well
-        #Kw = np.array([[1, 0, 0, 0, 0]])
-        #Ke = np.array([[0, 0, 0, 0, 1]])
-    elif Algorithm == "MLRI":
-        K = np.ones((3, 3))
-        Kw = np.array([[1, 0, 0]])
-        Ke = np.array([[0, 0, 1]])
-    elif Algorithm == "WMLRI":
-        K = np.multiply(getGaussianKernel(5, 2), (getGaussianKernel(5, 2)).T)
-        Kw = np.array([[1, 0, 0]])
-        Ke = np.array([[0, 0, 1]])
+    K = np.multiply(getGaussianKernel(5, 2), (getGaussianKernel(5, 2)).T)
+    Kw = np.array([[1, 0, 0]])
+    Ke = np.array([[0, 0, 1]])
 
     wh = filter2D(difh2, K)
     wv = filter2D(difv2, K)
@@ -87,7 +52,7 @@ def Means4Weights(Algorithm, difh2, difv2):
 
 
 
-def green_interpolation(mosaic, mask, pattern, sigma, Algorithm):
+def green_interpolation(mosaic, mask, pattern):
     """ 
     green interpolation implementing Residual Interpolation demosaicking 
     algorithms ('GBTF', 'RI', 'MLRI', 'WMLRI')  
@@ -109,19 +74,13 @@ def green_interpolation(mosaic, mask, pattern, sigma, Algorithm):
     # mask
     maskGr, maskGb, _, _ = get_mosaic_masks(rawq,pattern)
 
-    # Algorithm = 'GBTF'
-    # Algorithm = 'RI'
-    if Algorithm == 'GBTF':
-        # This functions implements Algorithm 3
-        difh, difv, difh2, difv2 = haresidual(rawq, mask, maskGr, maskGb, mosaic)
-    else:
-        # This functions implements Algorithm 5
-        difh, difv, difh2, difv2 = GuidefilterResidual(rawq, mask, maskGr, maskGb, mosaic, Algorithm)
+
+    difh, difv, difh2, difv2 = haresidual(rawq, mask, maskGr, maskGb, mosaic)
 
     ## final color differece estimate (last part of the 3rd step)
     # directional weight. These lines implement line 19 of Algorithm 5
-    Kn, Ks, Ke, Kw = DirectsSmooth4Kernel(Algorithm, sigma)
-    Wn, Ws, We, Ww = Means4Weights(Algorithm, difh2, difv2)
+    Kn, Ks, Ke, Kw = DirectsSmooth4Kernel()
+    Wn, Ws, We, Ww = Means4Weights(difh2, difv2)
 
     # combine directional color differences
     difn = filter2D(difv, Kn)
@@ -138,6 +97,6 @@ def green_interpolation(mosaic, mask, pattern, sigma, Algorithm):
     green = green * (1-mask[:, :, 1]) + rawq * mask[:, :, 1]
 
     # clip to 0-255
-    green = np.clip(green, 0, 255)
+    green = np.clip(green, 0, 255).astype(np.uint8)
 
     return green, dif

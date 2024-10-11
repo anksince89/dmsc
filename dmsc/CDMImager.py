@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 import csv
+import sys
 import importlib.util
 from skimage.metrics import structural_similarity as ssim
 
@@ -17,13 +18,14 @@ class CDMImager:
         if not os.path.exists(self.result_folder):
             os.makedirs(self.result_folder)
 
-    def mosaic_bayer(rgb, pattern):
+    def mosaic_bayer(self,rgb, pattern):
         """
         generate a mosaic from a rgb image
         pattern can be: 'grbg', 'rggb', 'gbrg', 'bggr'
         """
         num = np.zeros(len(pattern))
         pattern_list = list(pattern)
+        print(pattern_list)
         p = pattern_list.index('r')
         num[p] = 0
         p = [idx for idx, i in enumerate(pattern_list) if i == 'g']
@@ -44,42 +46,6 @@ class CDMImager:
         mosaic = rgb * mask
 
         return mosaic, mask
-
-
-
-    def get_mosaic_masks(mosaic, pattern):
-        """
-        generate the mosaic masks assuming a given pattern
-        returns:  maskGr, maskGb, maskR, maskB
-        """
-        size_rawq = mosaic.shape
-        maskGr = np.zeros((size_rawq[0], size_rawq[1]))
-        maskGb = np.zeros((size_rawq[0], size_rawq[1]))
-        maskR  = np.zeros((size_rawq[0], size_rawq[1]))
-        maskB  = np.zeros((size_rawq[0], size_rawq[1]))
-
-        if pattern == 'grbg':
-            maskGr[0::2, 0::2] = 1
-            maskGb[1::2, 1::2] = 1
-            maskR [0::2, 1::2] = 1
-            maskB [1::2, 0::2] = 1
-        elif pattern == 'rggb':
-            maskGr[0::2, 1::2] = 1
-            maskGb[1::2, 0::2] = 1
-            maskB [1::2, 1::2] = 1
-            maskR [0::2, 0::2] = 1
-        elif pattern == 'gbrg':
-            maskGb[0::2, 0::2] = 1
-            maskGr[1::2, 1::2] = 1
-            maskR [1::2, 0::2] = 1
-            maskB [0::2, 1::2] = 1
-        elif pattern == 'bggr':
-            maskGb[0::2, 1::2] = 1
-            maskGr[1::2, 0::2] = 1
-            maskB [0::2, 0::2] = 1
-            maskR [1::2, 1::2] = 1
-
-        return maskGr, maskGb, maskR, maskB
 
     def flatten_to_cfa(self, mosaic_img):
         """
@@ -105,15 +71,19 @@ class CDMImager:
         method_folder = os.path.join(self.demosaicker_folder, method_name)
         method_script = f"run_{method_name}.py"
         script_path = os.path.join(method_folder, method_script)
-        
+
         if not os.path.exists(script_path):
             raise FileNotFoundError(f"Demosaicking method script not found: {script_path}")
+
+        # Add the method's folder to sys.path so that it can find its dependencies
+        sys.path.insert(0, method_folder)
 
         # Load the script dynamically
         spec = importlib.util.spec_from_file_location(f"run_{method_name}", script_path)
         demosaic_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(demosaic_module)
 
+        # Check if the loaded module has the necessary `demosaic_function`
         if not hasattr(demosaic_module, 'demosaic_function'):
             raise AttributeError(f"No `demosaic_function` found in {script_path}")
         
@@ -123,6 +93,7 @@ class CDMImager:
         """
         Calculate PSNR (r, g, b, all) between ground truth and demosaicked images.
         """
+        print(gt_img.dtype, demosaicked_img.dtype)
         psnr_r = cv2.PSNR(gt_img[:, :, 0], demosaicked_img[:, :, 0])
         psnr_g = cv2.PSNR(gt_img[:, :, 1], demosaicked_img[:, :, 1])
         psnr_b = cv2.PSNR(gt_img[:, :, 2], demosaicked_img[:, :, 2])
@@ -150,14 +121,14 @@ class CDMImager:
             return
         
         # Mosaic the image
-        mosaic_img = self.mosaic(img)
+        mosaic_img,mask = self.mosaic_bayer(img,'grbg')
         
         # Convert to CFA
         cfa_img = self.flatten_to_cfa(mosaic_img)
 
         # Load and apply the demosaicking method
         demosaic_function = self.load_demosaic_method(demosaic_method)
-        demosaicked_img = demosaic_function(mosaic_img)  # Call the dynamically loaded demosaic function
+        demosaicked_img = demosaic_function((mosaic_img,mask, self.bayer_type))  # Call the dynamically loaded demosaic function
         
         # Save the demosaicked image
         result_path = os.path.join(self.result_folder, img_name)
@@ -170,7 +141,7 @@ class CDMImager:
         
         return psnr_r, psnr_g, psnr_b, psnr_all, ssim_value
 
-    def process_images(self, demosaic_method='GBTf'):
+    def process_images(self, demosaic_method='GBTF'):
         """
         Processes all images in the dataset folder using the specified demosaicking method.
         Calls process_single_image for each image and logs the results in a CSV file.

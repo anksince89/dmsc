@@ -1,12 +1,11 @@
 import numpy as np
-from mosaic_bayer import mosaic_bayer
+#import green_interpolation
 from green_interpolation import green_interpolation
 from red_interpolation import red_interpolation
 from blue_interpolation import blue_interpolation
+import os
 
-
-
-def demosaic(mosaic, pattern):
+def demosaic_function(mosaic_data):
     """
     Main function for the Residual Interpolation demosaicking
     algorithms 'GBTF', 'RI', 'MLRI', 'WMLRI'
@@ -14,13 +13,13 @@ def demosaic(mosaic, pattern):
     """
 
     # mosaic and mask (just to generate the mask)
-    mosaic, mask = mosaic_bayer(mosaic, pattern)
+    mosaic, mask, pattern = mosaic_data
     
     # imask
     imask = (mask == 0)
 
     # green interpolation
-    green, dif = green_interpolation(mosaic, mask, pattern, sigma, Algorithm)
+    green, dif = green_interpolation(mosaic, mask, pattern)
 
     # parameters for guided upsampling
     h = 5
@@ -28,13 +27,13 @@ def demosaic(mosaic, pattern):
     eps = 0
 
     # Red and Blue demosaicking
-    red = red_interpolation(green, mosaic, mask, pattern, h, v, eps, dif, Algorithm)
-    blue = blue_interpolation(green, mosaic, mask, pattern, h, v, eps, dif, Algorithm)
+    red = red_interpolation(green, mosaic, mask, pattern, dif)
+    blue = blue_interpolation(green, mosaic, mask, pattern, dif)
 
 
     # result image
     rgb_size = mosaic.shape
-    rgb_dem = np.zeros((rgb_size[0], rgb_size[1], 3))
+    rgb_dem = np.zeros((rgb_size[0], rgb_size[1], 3),dtype=np.uint8)
     rgb_dem[:, :, 0] = red
     rgb_dem[:, :, 1] = green
     rgb_dem[:, :, 2] = blue
